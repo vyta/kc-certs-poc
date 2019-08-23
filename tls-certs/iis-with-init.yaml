@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iis-with-init
+  namespace: init
+  labels:
+    deploy: iis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: iis-with-init
+  template:
+    metadata:
+      labels:
+        app: iis-with-init
+    spec:
+      nodeSelector:
+          "beta.kubernetes.io/os": windows
+      initContainers:
+      # !!THE FOLLOWING WILL NOT WORK. 
+      # Keeping this as a reminder of current issue with azure.json on win
+      # - name: powershell
+      #   image: mcr.microsoft.com/powershell:nanoserver-1809
+      #   command: ["pwsh.exe", "-Command"]
+      #   args: ["(get-content -Path C:\\k\\azure.json) -Replace ': ,',': \"\"' | out-file C:\\\\azure.json"]
+      #   volumeMounts:
+      #   - name: host-sp
+      #     mountPath: c:\k
+      - name: keyvault-agent
+        image: registry.azurecr.io/kvagent:windows
+        imagePullPolicy: Always
+        env:
+        - name: VAULT_BASE_URL
+          value: https://vyta-temp.vault.azure.net/
+        - name: SERVICE_PRINCIPLE_FILE_PATH
+          value: C:\k\azure.json
+        - name: SECRETS_FOLDER
+          value: c:\secrets
+        - name: SECRETS_KEYS
+          value: certtest
+        - name: CERTS_KEYS
+          value: certtest
+        volumeMounts:
+        - name: secrets
+          mountPath: c:\secrets
+        - name: host-sp
+          mountPath: c:\k
+          readOnly: true
+      containers:
+      - image: registry.azurecr.io/http-iis
+        imagePullPolicy: Always
+        name: iis
+        ports:
+        - containerPort: 80
+        - containerPort: 443
+        volumeMounts:
+        - name: secrets
+          mountPath: c:\secrets
+      volumes:
+      - name: secrets
+        emptyDir: 
+          medium: Memory
+      - name: host-sp
+        hostPath:
+          path: c:\k
+          type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iis-with-init
+  namespace: init
+spec:
+  type: LoadBalancer
+  selector:
+    app: iis-with-init
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  - port: 443
+    protocol: TCP
+    name: https        
+          
